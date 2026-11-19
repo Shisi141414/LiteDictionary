@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>学科知识库 · 检索</title>
+<!-- 依赖：sql.js（浏览器端 SQLite）、marked（Markdown）、KaTeX（公式渲染） -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/sql-wasm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+         background: #f6f7f9; color: #24292f; }
+  header { background: #1f2937; color: #fff; padding: 18px 24px; }
+  header h1 { margin: 0; font-size: 20px; }
+  header p { margin: 4px 0 0; font-size: 13px; opacity: .75; }
+  .wrap { max-width: 960px; margin: 20px auto; padding: 0 16px; }
+  .bar { display: flex; gap: 10px; flex-wrap: wrap; background: #fff; padding: 14px;
+         border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  select, input[type=text] { padding: 8px 10px; border: 1px solid #d0d7de; border-radius: 6px; font-size: 14px; }
+  select { min-width: 150px; }
+  input[type=text] { flex: 1; min-width: 220px; }
+  button { padding: 8px 18px; background: #2563eb; color: #fff; border: 0; border-radius: 6px;
+           font-size: 14px; cursor: pointer; }
+  button:hover { background: #1d4ed8; }
+  .meta { margin: 12px 4px; font-size: 13px; color: #57606a; }
+  .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.08);
+          margin-bottom: 12px; overflow: hidden; }
+  .head { padding: 14px 16px; cursor: pointer; }
+  .head:hover { background: #f3f4f6; }
+  .head .term { font-weight: 600; font-size: 16px; }
+  .head .tags { display: inline-block; margin-left: 8px; font-size: 12px; color: #2563eb; }
+  .head .brief { margin-top: 6px; font-size: 13px; color: #57606a; }
+  .detail { display: none; padding: 4px 20px 16px; border-top: 1px solid #eaeef2;
+            font-size: 14px; line-height: 1.8; }
+  .card.open .detail { display: block; }
+  .detail ul, .detail ol { padding-left: 22px; }
+  .code-hint { color: #6e7781; font-size: 12px; margin: 6px 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>轻量级学科知识库</h1>
+  <p>21 学科 · 中英对照 · 概念 / 定理 / 方法 / 人物志</p>
+</header>
+
+<div class="wrap">
+  <div class="bar">
+    <select id="subj"></select>
+    <input id="kw" type="text" placeholder="输入术语（支持中/英文、别名模糊匹配）" autofocus>
+    <button onclick="doSearch()">检索</button>
+  </div>
+  <div class="meta" id="status">选择学科后输入关键词，回车检索。</div>
+  <div id="results"></div>
+  <div class="code-hint">点击词条展开完整释义（含 LaTeX 公式渲染）。</div>
+</div>
+
+<script>
+const REPO = "Shisi141414/LiteDictionary";
+
+const SUBJECTS = {
+  "math":"数学","physics":"物理","chemistry":"化学","mechanics":"力学",
+  "thermodynamics":"热力学","materials_science":"材料学","computer_science":"计算机",
+  "biology":"生物学","geography":"地理学","psychology":"心理学","economics":"经济学",
+  "politics":"政治学","sociology":"社会学","law0":"法学占位","history":"历史学",
+  "linguistics":"语言学","literature":"文学","philosophy":"哲学","aesthetics":"美学",
+  "fine_arts":"美术","music":"音乐","dance":"舞蹈"
+};
+delete SUBJECTS.law0;
+
+let db = null, currentSubj = null, SQL = null;
+const $ = id => document.getElementById(id);
+
+const sel = $("subj");
+Object.entries(SUBJECTS).forEach(([code, name]) => {
+  const o = document.createElement("option");
+  o.value = code; o.textContent = name; sel.appendChild(o);
+});
+
+$("kw").addEventListener("keydown", e => { if (e.key === "Enter") doSearch(); });
+
+async function loadDB(code) {
+  if (db && currentSubj === code) return;
+  $("status").textContent = "加载数据库中…";
+  if (!SQL) {
+    SQL = await initSqlJs({ locateFile: f =>
+      "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/" + f });
+  }
+  const url = `https://cdn.jsdelivr.net/gh/${REPO}@main/kb_${code}.sqlite`;
+  const buf = await (await fetch(url)).arrayBuffer();
+  db = new SQL.Database(new Uint8Array(buf));
+  currentSubj = code;
+}
+
+function esc(s) { return s.replace(/'/g, "''"); }
+
+function render(mdText, el) {
+  el.innerHTML = marked.parse(mdText.replace(/\n/g, "\n"));
+  renderMathInElement(el, {
+    delimiters: [{left: "$$", right: "$$", display: true},
+                 {left: "$", right: "$", display: false}],
+    throwOnError: false
+  });
+}
+
+async function doSearch() {
+  const code = sel.value, kw = $("kw").value.trim();
+  $("results").innerHTML = "";
+  try {
+    await loadDB(code);
+  } catch (e) {
+    $("status").textContent = "数据库加载失败：请确认文件顶部 REPO 已改为你的用户名/仓库名，且仓库为 public。";
+    return;
+  }
+  const like = kw ? `%${esc(kw)}%` : "%";
+  const sql = `SELECT term, aliases, definition_brief, definition_detail, tags
+               FROM kb_entries
+               WHERE term LIKE ? OR aliases LIKE ? OR definition_brief LIKE ?
+               ORDER BY id LIMIT 100`;
+  const res = db.exec(sql, [like, like, like]);
+  const rows = res.length ? res[0].values : [];
+  $("status").textContent = rows.length
+    ? `${SUBJECTS[code]} · 命中 ${rows.length} 条`
+    : `${SUBJECTS[code]} · 无匹配结果`;
+
+  rows.forEach(([term, aliases, brief, detail, tags]) => {
+    const card = document.createElement("div"); card.className = "card";
+    const head = document.createElement("div"); head.className = "head";
+    head.innerHTML = `<span class="term">${term.split("|")[0]}</span>` +
+      `<span class="tags">${JSON.parse(tags).join(" · ")}</span>` +
+      `<div class="brief"></div>`;
+    render(brief, head.querySelector(".brief"));
+    const det = document.createElement("div"); det.className = "detail";
+    render(detail, det);
+    head.onclick = () => card.classList.toggle("open");
+    card.append(head, det);
+    $("results").appendChild(card);
+  });
+}
+</script>
+</body>
+</html>

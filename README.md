@@ -62,6 +62,8 @@
 
 ## 使用示例
 
+**在线检索（推荐）**：开通 GitHub Pages 后打开网站，选学科、输关键词即可，公式自动渲染。本地部署：直接双击打开 `docs/index.html` 需先按文件内注释把 `REPO` 改为你的仓库地址。
+
 ```python
 import sqlite3, json
 conn = sqlite3.connect("kb_math.sqlite")
