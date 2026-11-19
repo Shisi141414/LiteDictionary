@@ -1,0 +1,16 @@
+# AI 协作工作区（工作流、进度、报告等，不上传）
+AI工作区/
+
+# 构建产物（如改用 CI 方案则取消注释）
+# kb_*.sqlite
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# 临时文件
+*.tmp
+*.bak

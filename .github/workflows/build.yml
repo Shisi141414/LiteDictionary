@@ -1,0 +1,23 @@
+name: Build SQLite databases
+
+on:
+  push:
+    branches: [main]
+    paths: ['data/**', 'scripts/**']
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build all subject databases
+        run: |
+          for d in data/*/; do
+            subj=$(basename "$d")
+            python3 scripts/build_kb.py --subject "$subj" --src "data/$subj" --out "kb_${subj}.sqlite"
+          done
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: knowledge-bases
+          path: kb_*.sqlite
